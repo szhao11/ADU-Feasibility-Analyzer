@@ -14,7 +14,9 @@ pnpm dev
 bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3001](http://localhost:3001) with your browser to see the result.
+
+> Port 3001 is used by default because 3000 is often occupied by other local apps.
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
