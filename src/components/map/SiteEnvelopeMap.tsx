@@ -5,10 +5,17 @@ import maplibregl from "maplibre-gl";
 import "maplibre-gl/dist/maplibre-gl.css";
 import type { FeasibilityProject } from "@/lib/types";
 import {
-  footprintToPolygon,
+  structureToPolygon,
   parcelBBox,
   getAduFootprint,
+  buildNetBuildableZone,
+  computeMaxAduFootprint,
+  maxAduFootprintToPolygon,
 } from "@/lib/geometry/site-plan";
+import {
+  getDefaultSetbacks,
+  getMaxAduSqFt,
+} from "@/lib/rules/envelope-requirements";
 
 export function SiteEnvelopeMap({
   project,
@@ -28,6 +35,39 @@ export function SiteEnvelopeMap({
         properties: { kind: "parcel" },
         geometry: sitePlan.parcelGeoJson,
       });
+
+      const setbacks = getDefaultSetbacks(project);
+      const buildable = buildNetBuildableZone(sitePlan, setbacks);
+      if (buildable) {
+        features.push({
+          type: "Feature",
+          properties: { kind: "buildable" },
+          geometry: buildable.geometry,
+        });
+      }
+
+      const maxSqFt = getMaxAduSqFt(project);
+      const maxFootprint = computeMaxAduFootprint(sitePlan, setbacks, maxSqFt);
+      if (
+        maxFootprint &&
+        sitePlan.origin &&
+        sitePlan.axisBearingDeg !== undefined
+      ) {
+        features.push({
+          type: "Feature",
+          properties: {
+            kind: "max-adu",
+            areaSqFt: maxFootprint.areaSqFt,
+            widthFt: maxFootprint.widthFt,
+            depthFt: maxFootprint.depthFt,
+          },
+          geometry: maxAduFootprintToPolygon(
+            maxFootprint,
+            sitePlan.origin,
+            sitePlan.axisBearingDeg
+          ),
+        });
+      }
     }
 
     if (sitePlan.origin && sitePlan.axisBearingDeg !== undefined) {
@@ -35,7 +75,7 @@ export function SiteEnvelopeMap({
         features.push({
           type: "Feature",
           properties: { kind: s.kind, id: s.id },
-          geometry: footprintToPolygon(
+          geometry: structureToPolygon(
             s,
             sitePlan.origin,
             sitePlan.axisBearingDeg
@@ -68,9 +108,7 @@ export function SiteEnvelopeMap({
         sources: {
           osm: {
             type: "raster",
-            tiles: [
-              "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
-            ],
+            tiles: ["https://tile.openstreetmap.org/{z}/{x}/{y}.png"],
             tileSize: 256,
             attribution: "© OpenStreetMap",
           },
@@ -101,6 +139,46 @@ export function SiteEnvelopeMap({
         source: "site",
         filter: ["==", ["get", "kind"], "parcel"],
         paint: { "fill-color": "#e2e8f0", "fill-opacity": 0.45 },
+      });
+
+      map.addLayer({
+        id: "buildable-fill",
+        type: "fill",
+        source: "site",
+        filter: ["==", ["get", "kind"], "buildable"],
+        paint: { "fill-color": "#fef08a", "fill-opacity": 0.35 },
+      });
+
+      map.addLayer({
+        id: "buildable-line",
+        type: "line",
+        source: "site",
+        filter: ["==", ["get", "kind"], "buildable"],
+        paint: {
+          "line-color": "#ca8a04",
+          "line-width": 2,
+          "line-dasharray": [4, 3],
+        },
+      });
+
+      map.addLayer({
+        id: "max-adu-fill",
+        type: "fill",
+        source: "site",
+        filter: ["==", ["get", "kind"], "max-adu"],
+        paint: { "fill-color": "#14b8a6", "fill-opacity": 0.25 },
+      });
+
+      map.addLayer({
+        id: "max-adu-line",
+        type: "line",
+        source: "site",
+        filter: ["==", ["get", "kind"], "max-adu"],
+        paint: {
+          "line-color": "#0d9488",
+          "line-width": 2.5,
+          "line-dasharray": [2, 2],
+        },
       });
 
       map.addLayer({
@@ -197,7 +275,7 @@ export function SiteEnvelopeMap({
         { padding: 48, maxZoom: 19, duration: 500 }
       );
     }
-  }, [project.sitePlan, buildGeoJson]);
+  }, [project.sitePlan, project.property, project.intent, buildGeoJson]);
 
   if (!project.sitePlan.parcelGeoJson) {
     return (
@@ -208,6 +286,13 @@ export function SiteEnvelopeMap({
   }
 
   const adu = getAduFootprint(project.sitePlan);
+  const setbacks = getDefaultSetbacks(project);
+  const maxSqFt = getMaxAduSqFt(project);
+  const maxFootprint = computeMaxAduFootprint(
+    project.sitePlan,
+    setbacks,
+    maxSqFt
+  );
 
   return (
     <div className="space-y-2">
@@ -216,6 +301,18 @@ export function SiteEnvelopeMap({
         className="h-80 w-full overflow-hidden rounded-lg border border-slate-200"
       />
       <div className="flex flex-wrap gap-3 text-[10px] text-slate-500">
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-2 w-2 rounded-sm border border-amber-600 bg-amber-100" />
+          Buildable zone ({setbacks.sideFt}&apos; side / {setbacks.rearFt}&apos;
+          rear / {setbacks.frontFt}&apos; front, minus structures)
+        </span>
+        {maxFootprint && (
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2 w-2 rounded-sm border border-dashed border-teal-600 bg-teal-200" />
+            Max ADU footprint ({maxFootprint.widthFt}×{maxFootprint.depthFt}{" "}
+            ft, {maxFootprint.areaSqFt} sf — 5&apos; separation + egress)
+          </span>
+        )}
         <span className="flex items-center gap-1">
           <span className="inline-block h-2 w-2 rounded-sm bg-slate-500" />
           Primary

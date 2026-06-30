@@ -19,7 +19,14 @@ import {
   createDefaultSitePlan,
   orientParcel,
   estimateLotDimensions,
+  polygonToLocalRect,
+  computeMaxAduFootprint,
+  constrainAduToMaxFootprint,
+  suggestAduPlacement,
 } from "../geometry/site-plan";
+import { queryBuildingsOnParcel, type LacountyBuildingFeature } from "./buildings";
+import { lookupBurbankOverlays } from "./burbank-overlays";
+import { syncPropertyFromSitePlan } from "../property/sync-from-site-plan";
 
 function parseSqFt(value: string | number | undefined): number | undefined {
   if (value === undefined || value === null || value === "") return undefined;
@@ -27,19 +34,38 @@ function parseSqFt(value: string | number | undefined): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
-function buildSitePlanFromParcel(
-  parcel: LacountyParcelFeature,
-  geocode: LatLng
-): SitePlanData {
-  const orientation = orientParcel(parcel.geometry, geocode);
-  const lotSqFt = parcel.properties["Shape.STArea()"];
-  const primarySqFt = parseSqFt(parcel.properties.SQFTmain1);
-  const dims = estimateLotDimensions(
-    parcel.geometry,
-    orientation.origin,
-    orientation.axisBearingDeg
-  );
+function buildingToStructure(
+  building: LacountyBuildingFeature,
+  kind: RectFootprint["kind"],
+  origin: LatLng,
+  axisBearingDeg: number
+): RectFootprint {
+  const rect = polygonToLocalRect(building.geometry, origin, axisBearingDeg);
+  return {
+    id: uuidv4(),
+    kind,
+    ...rect,
+    footprintGeoJson: building.geometry,
+  };
+}
 
+function classifyGarage(
+  buildings: LacountyBuildingFeature[],
+  primary?: LacountyBuildingFeature
+): LacountyBuildingFeature | undefined {
+  if (!primary) return undefined;
+  return buildings.find(
+    (b) =>
+      b !== primary &&
+      b.areaSqFt >= 200 &&
+      b.areaSqFt <= primary.areaSqFt * 0.65
+  );
+}
+
+function buildHeuristicStructures(
+  dims: { widthFt: number; depthFt: number },
+  primarySqFt?: number
+): RectFootprint[] {
   const structures: RectFootprint[] = [];
 
   const primaryWidth = Math.min(dims.widthFt * 0.55, 45);
@@ -58,31 +84,71 @@ function buildSitePlanFromParcel(
     rotationDeg: 0,
   });
 
-  const garageWidth = 22;
-  const garageDepth = 20;
   structures.push({
     id: uuidv4(),
     kind: "garage",
     centerXFt: dims.widthFt * 0.72,
-    centerYFt: garageDepth / 2 + 6,
-    widthFt: garageWidth,
-    depthFt: garageDepth,
+    centerYFt: 10,
+    widthFt: 22,
+    depthFt: 20,
     rotationDeg: 0,
   });
+
+  return structures;
+}
+
+async function buildSitePlanFromParcel(
+  parcel: LacountyParcelFeature,
+  geocode: LatLng
+): Promise<{
+  sitePlan: SitePlanData;
+  lariacBuildingCount: number;
+  lariacTotalSqFt: number;
+}> {
+  const orientation = orientParcel(parcel.geometry, geocode);
+  const primarySqFt = parseSqFt(parcel.properties.SQFTmain1);
+  const dims = estimateLotDimensions(
+    parcel.geometry,
+    orientation.origin,
+    orientation.axisBearingDeg
+  );
+
+  const buildings = await queryBuildingsOnParcel(parcel.geometry);
+  const structures: RectFootprint[] = [];
+  let usedGisFootprints = false;
+
+  if (buildings.length > 0) {
+    usedGisFootprints = true;
+    const primaryBuilding = buildings[0];
+    const garageBuilding = classifyGarage(buildings, primaryBuilding);
+
+    structures.push(
+      buildingToStructure(
+        primaryBuilding,
+        "primary",
+        orientation.origin,
+        orientation.axisBearingDeg
+      )
+    );
+
+    if (garageBuilding) {
+      structures.push(
+        buildingToStructure(
+          garageBuilding,
+          "garage",
+          orientation.origin,
+          orientation.axisBearingDeg
+        )
+      );
+    }
+  } else {
+    structures.push(...buildHeuristicStructures(dims, primarySqFt));
+  }
 
   const aduWidth = 20;
   const aduDepth = 24;
-  structures.push({
-    id: uuidv4(),
-    kind: "adu",
-    centerXFt: aduWidth / 2 + 6,
-    centerYFt: dims.depthFt - aduDepth / 2 - 6,
-    widthFt: aduWidth,
-    depthFt: aduDepth,
-    rotationDeg: 0,
-  });
-
-  return {
+  const setbacks = { frontFt: 20, sideFt: 4, rearFt: 4 };
+  const draftPlan: SitePlanData = {
     parcelGeoJson: parcel.geometry,
     geocode,
     origin: orientation.origin,
@@ -91,6 +157,52 @@ function buildSitePlanFromParcel(
     structures,
     lookupSource: "lacounty_assessor",
     lookupAt: new Date().toISOString(),
+  };
+
+  const maxFootprint = computeMaxAduFootprint(draftPlan, setbacks, 850);
+  let aduPlacement: { centerXFt: number; centerYFt: number };
+  let finalWidth = aduWidth;
+  let finalDepth = aduDepth;
+
+  if (maxFootprint) {
+    finalWidth = Math.min(aduWidth, maxFootprint.widthFt);
+    finalDepth = Math.min(aduDepth, maxFootprint.depthFt);
+    aduPlacement = constrainAduToMaxFootprint(
+      {
+        centerXFt: maxFootprint.centerXFt,
+        centerYFt: maxFootprint.centerYFt,
+        widthFt: finalWidth,
+        depthFt: finalDepth,
+      },
+      maxFootprint
+    );
+  } else {
+    aduPlacement = suggestAduPlacement(draftPlan, setbacks, {
+      widthFt: aduWidth,
+      depthFt: aduDepth,
+    });
+  }
+
+  structures.push({
+    id: uuidv4(),
+    kind: "adu",
+    centerXFt: aduPlacement.centerXFt,
+    centerYFt: aduPlacement.centerYFt,
+    widthFt: finalWidth,
+    depthFt: finalDepth,
+    rotationDeg: 0,
+  });
+
+  return {
+    sitePlan: {
+      ...draftPlan,
+      structures,
+      lookupMessage: usedGisFootprints
+        ? "Building footprints from LA County LARIAC (2023)."
+        : "Building locations estimated — LARIAC outlines unavailable.",
+    },
+    lariacBuildingCount: buildings.length,
+    lariacTotalSqFt: buildings.reduce((sum, b) => sum + b.areaSqFt, 0),
   };
 }
 
@@ -109,7 +221,7 @@ function propertyFromParcel(
     lotSqFt: lotSqFt ? Math.round(lotSqFt) : undefined,
     primarySqFt: primarySqFt ? Math.round(primarySqFt) : undefined,
     hasPrimaryDwelling: !!primarySqFt && primarySqFt > 0,
-    hasGarage: true,
+    hasGarage: false,
     gisVerified: true,
     overlays: {
       mountainFireZone: false,
@@ -118,6 +230,10 @@ function propertyFromParcel(
       permitParkingDistrict: false,
       nearHighQualityTransit: false,
       historicDistrict: false,
+      steepSlopeDetected: false,
+      streetTreesNearby: false,
+      treeCanopyOnParcel: false,
+      unpermittedStructureRisk: false,
     },
   };
 }
@@ -180,7 +296,8 @@ export async function lookupBurbankParcel(
       };
     }
 
-    const sitePlan = buildSitePlanFromParcel(parcel, geocode);
+    const { sitePlan, lariacBuildingCount, lariacTotalSqFt } =
+      await buildSitePlanFromParcel(parcel, geocode);
     const propertyPatch = propertyFromParcel(parcel, address);
 
     const zoning = await lookupBurbankZoning({
@@ -214,8 +331,38 @@ export async function lookupBurbankParcel(
       propertyPatch.lotDepthFt = Math.round(dims.depthFt);
     }
 
+    const overlayLookup = await lookupBurbankOverlays(
+      geocode,
+      propertyPatch.zone ?? "R-1",
+      {
+        parcel: parcel.geometry,
+        lotWidthFt: propertyPatch.lotWidthFt,
+        lotDepthFt: propertyPatch.lotDepthFt,
+        address: propertyPatch.address ?? address,
+        apn: propertyPatch.apn ?? propertyPatch.ain,
+        buildings: {
+          primarySqFt: propertyPatch.primarySqFt,
+          lariacBuildingCount,
+          lariacTotalSqFt,
+        },
+      }
+    );
+    propertyPatch.overlays = {
+      ...propertyPatch.overlays!,
+      ...overlayLookup.overlays,
+    };
+
+    const syncedProperty = syncPropertyFromSitePlan(
+      { ...propertyPatch } as PropertyData,
+      sitePlan
+    );
+    Object.assign(propertyPatch, syncedProperty);
+
     const apnLabel = parcel.properties.APN ?? parcel.properties.AIN;
     let message = `Parcel ${apnLabel} loaded from LA County Assessor.`;
+    if (overlayLookup.messages.length > 0) {
+      message += ` ${overlayLookup.messages.join(" ")}`;
+    }
     if (zoning) {
       const yearSuffix = zoning.year ? ` (${zoning.year})` : "";
       if (zoning.zone === "OTHER") {

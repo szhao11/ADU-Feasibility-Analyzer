@@ -4,6 +4,22 @@ import type { RuleFinding } from "@/lib/types";
 import { StatusBadge } from "@/components/ui/StatusBadge";
 import { Card } from "@/components/ui/Form";
 
+export function countFindingAlerts(findings: RuleFinding[]): number {
+  return findings.filter(
+    (f) => f.status === "fail" || f.status === "warning"
+  ).length;
+}
+
+export function FindingsAlertBadge({ findings }: { findings: RuleFinding[] }) {
+  const count = countFindingAlerts(findings);
+  if (count === 0) return null;
+  return (
+    <span className="inline-flex h-5 min-w-5 items-center justify-center rounded-full bg-amber-500 px-1.5 text-[10px] font-bold text-white">
+      {count}
+    </span>
+  );
+}
+
 export function FindingsPanel({ findings }: { findings: RuleFinding[] }) {
   const grouped = findings.reduce<Record<string, RuleFinding[]>>((acc, f) => {
     (acc[f.category] ??= []).push(f);
@@ -13,7 +29,7 @@ export function FindingsPanel({ findings }: { findings: RuleFinding[] }) {
   if (findings.length === 0) {
     return (
       <Card className="text-sm text-slate-500">
-        Complete property and ADU type steps to generate regulatory findings.
+        Complete property lookup and ADU type to generate regulatory findings.
       </Card>
     );
   }

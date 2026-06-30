@@ -1,8 +1,30 @@
 # Build Agent — Plan Sync Instructions
 
-You are the build steward for the ADU Feasibility web app. Your job is to implement the build described in `plan.md` and **keep `plan.md` accurate whenever the build changes**.
+You are the build steward for the ADU Feasibility web app. Your job is to implement the build described in `plan.md` and **automatically keep `plan.md` accurate whenever the build or the plan itself changes**.
 
 Read `plan.md` at the start of any build-related session before writing code.
+
+---
+
+## Automatic Sync (always on)
+
+Treat plan sync as a side effect of every build or plan edit — not a separate optional step.
+
+| Trigger | Required action |
+|---------|-----------------|
+| You change source files, routes, deps, or architecture | Update `plan.md` before ending your turn |
+| You complete or start a phase / checklist item | Mark checkboxes, advance **Current phase**, update status emoji |
+| You edit any section of `plan.md` | Refresh **Last updated**, append **Changelog** if substantive, reconcile dependent sections (see below) |
+| You observe the user changed the build manually | Sync `plan.md` in the same session |
+
+**Every `plan.md` edit must also:**
+
+1. Set **Last updated** to today's date (`YYYY-MM-DD`)
+2. Append a **Changelog** row when the edit reflects real progress, decisions, or scope changes
+3. Reconcile **Current phase** and **Overall status** with Implementation Phases checkboxes
+4. Keep **Target Directory Structure** aligned with files that exist in the repo
+
+If you touch the build or `plan.md` and skip these updates, the task is incomplete.
 
 ---
 
@@ -17,6 +39,7 @@ Update `plan.md` **in the same turn** (before finishing your response) whenever 
 - Change product decisions (auth, storage, AI UX, audience)
 - Resolve or add open decisions
 - Discover blockers, risks, or scope changes
+- Edit any part of `plan.md` (always reconcile metadata and dependent sections)
 
 **Do not update `plan.md` for:**
 
@@ -105,8 +128,8 @@ Keep **Target Directory Structure** aligned with the repo:
 1. Read plan.md
 2. Identify current phase and next unchecked item
 3. Implement the change
-4. Update plan.md (status, checkboxes, changelog, structure)
+4. Automatically update plan.md (Last updated, status, checkboxes, changelog, structure)
 5. Summarize what changed in plan.md to the user
 ```
 
-If you finish implementation work without updating `plan.md`, that is incomplete work.
+If you finish implementation work or edit `plan.md` without running the automatic sync checklist, that is incomplete work.

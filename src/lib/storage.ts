@@ -12,6 +12,7 @@ import type {
   ConstraintsData,
   UtilitiesData,
   ParcelPolygon,
+  WizardStep,
 } from "./types";
 import { createDefaultSitePlan } from "./geometry/site-plan";
 
@@ -31,6 +32,10 @@ function defaultProperty(): PropertyData {
       permitParkingDistrict: false,
       nearHighQualityTransit: false,
       historicDistrict: false,
+      steepSlopeDetected: false,
+      streetTreesNearby: false,
+      treeCanopyOnParcel: false,
+      unpermittedStructureRisk: false,
     },
   };
 }
@@ -93,6 +98,30 @@ export async function saveProject(project: FeasibilityProject): Promise<void> {
   await set(`${PROJECT_PREFIX}${project.id}`, updated);
 }
 
+const LEGACY_STEP_MAP: Record<string, WizardStep> = {
+  eligibility: "eligibility_envelope",
+  envelope: "eligibility_envelope",
+};
+
+export function migrateWizardStep(step: string): WizardStep {
+  if (step in LEGACY_STEP_MAP) {
+    return LEGACY_STEP_MAP[step];
+  }
+  const valid: WizardStep[] = [
+    "property",
+    "eligibility_envelope",
+    "adu_type",
+    "constraints",
+    "utilities",
+    "permits",
+    "report",
+  ];
+  if (valid.includes(step as WizardStep)) {
+    return step as WizardStep;
+  }
+  return "property";
+}
+
 export async function loadProject(
   id: string
 ): Promise<FeasibilityProject | undefined> {
@@ -108,6 +137,7 @@ export async function loadProject(
   if (!sp.parcelGeoJson && sp.parcel?.type === "Polygon") {
     sp.parcelGeoJson = sp.parcel;
   }
+  project.currentStep = migrateWizardStep(project.currentStep);
   return project;
 }
 

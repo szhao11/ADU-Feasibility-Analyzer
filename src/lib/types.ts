@@ -19,9 +19,8 @@ export type AduType =
 
 export type WizardStep =
   | "property"
-  | "eligibility"
+  | "eligibility_envelope"
   | "adu_type"
-  | "envelope"
   | "constraints"
   | "utilities"
   | "permits"
@@ -76,13 +75,15 @@ export interface RectFootprint {
   widthFt: number;
   depthFt: number;
   rotationDeg: number;
+  /** LARIAC building outline when sourced from GIS (preferred for map render) */
+  footprintGeoJson?: ParcelPolygon;
 }
 
 export interface SitePlanData {
   parcelGeoJson?: ParcelPolygon;
   geocode?: LatLng;
   origin?: LatLng;
-  /** Degrees clockwise from north for local +X (along frontage) */
+  /** Degrees clockwise from north for local +Y (depth into lot; +X is frontage) */
   axisBearingDeg?: number;
   frontEdgeIndex?: number;
   structures: RectFootprint[];
@@ -117,8 +118,24 @@ export interface PropertyData {
     r1hHillside: boolean;
     nearPublicTransitHalfMile: boolean;
     permitParkingDistrict: boolean;
+    /** Zone letter (A–H) when matched from City permit parking map */
+    permitParkingZone?: string;
     nearHighQualityTransit: boolean;
     historicDistrict: boolean;
+    historicResourceName?: string;
+    /** LA County LARIAC contours — estimated max slope ≥25% on parcel */
+    steepSlopeDetected: boolean;
+    /** Estimated max slope (percent rise) from contour elevation range on lot */
+    estimatedMaxSlopePct?: number;
+    /** Street or parkway trees within buffer of parcel (LA County inventory) */
+    streetTreesNearby: boolean;
+    streetTreeCount?: number;
+    largeStreetTreesNearby?: number;
+    /** LARIAC 2023 tree canopy raster sampled on parcel */
+    treeCanopyOnParcel: boolean;
+    /** LARIAC vs Assessor footprint discrepancy — screening only */
+    unpermittedStructureRisk: boolean;
+    unpermittedStructureNote?: string;
   };
 }
 
@@ -137,10 +154,57 @@ export interface EnvelopeData {
   sideSetbackFt?: number;
   rearSetbackFt?: number;
   separationFromPrimaryFt?: number;
+  separationFromGarageFt?: number;
+  minStructureSeparationFt?: number;
   mapSideSetbackFt?: number;
   mapRearSetbackFt?: number;
   mapSeparationFt?: number;
+  mapSeparationFromGarageFt?: number;
+  mapMinStructureSeparationFt?: number;
+  remainingBuildableSqFt?: number;
+  buildableConsumedPct?: number;
+  minAccessPassageFt?: number;
   mapViolations?: string[];
+  mapDesignWarnings?: string[];
+  floorAreaAnalysis?: AduFloorAreaAnalysis;
+}
+
+export interface AduHeightLimits {
+  label: string;
+  plateFt: number;
+  roofFt: number;
+}
+
+export interface StoryPermitAnalysis {
+  maxStories: 1 | 2;
+  singleStoryOnly: boolean;
+  note?: string;
+}
+
+export interface AduFloorAreaByType {
+  aduType: AduType;
+  label: string;
+  height: AduHeightLimits;
+  stories: StoryPermitAnalysis;
+  codeMaxSqFt: number;
+  maxSingleStoryTotalSqFt: number;
+  singleStoryFootprintSqFt: number;
+  maxTwoStoryTotalSqFt: number | null;
+  twoStoryFootprintSqFt: number | null;
+}
+
+export interface AduFloorAreaAnalysis {
+  codeMaxSqFt: number;
+  minFloorToFloorFt: number;
+  minHabitableCeilingFt: number;
+  byType: AduFloorAreaByType[];
+}
+
+export interface SitePlanSyncOptions {
+  frontSetbackFt?: number;
+  setbacks?: { frontFt: number; sideFt: number; rearFt: number };
+  maxSqFt?: number;
+  floorAreaContext?: Pick<FeasibilityProject, "property" | "intent">;
 }
 
 export interface ConstraintsData {

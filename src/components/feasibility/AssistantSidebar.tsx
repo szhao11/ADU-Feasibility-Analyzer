@@ -21,10 +21,12 @@ export function AssistantSidebar({
   project,
   messages,
   onMessagesChange,
+  embedded = false,
 }: {
   project: FeasibilityProject;
   messages: AssistantMessage[];
   onMessagesChange: (messages: AssistantMessage[]) => void;
+  embedded?: boolean;
 }) {
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -45,13 +47,15 @@ export function AssistantSidebar({
   }
 
   return (
-    <div className="flex h-full flex-col border-l border-slate-200 bg-slate-50">
-      <div className="border-b border-slate-200 px-4 py-3">
-        <h2 className="text-sm font-semibold text-slate-900">Code Assistant</h2>
-        <p className="text-xs text-slate-500">
-          Local Burbank rules · no data leaves your browser
-        </p>
-      </div>
+    <div className="flex h-full flex-col bg-slate-50">
+      {!embedded && (
+        <div className="border-b border-slate-200 px-4 py-3">
+          <h2 className="text-sm font-semibold text-slate-900">Code Assistant</h2>
+          <p className="text-xs text-slate-500">
+            Local Burbank rules · no data leaves your browser
+          </p>
+        </div>
+      )}
 
       <div className="flex-1 space-y-3 overflow-y-auto p-4">
         {messages.length === 0 && (

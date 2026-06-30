@@ -161,6 +161,17 @@ export function StepAduType({
         />
       </div>
 
+      {intent.aduTypes.includes("detached") &&
+        !project.property.hasGarage &&
+        project.property.gisVerified && (
+          <Card className="border-amber-200 bg-amber-50">
+            <p className="text-xs text-amber-900">
+              No garage footprint detected on this lot. If the detached ADU needs
+              new driveway or curb cut access, confirm on the Site step.
+            </p>
+          </Card>
+        )}
+
       {intent.aduTypes.includes("garage_conversion") && (
         <Checkbox
           label="Conversion within existing legal footprint (same location & dimensions)"
